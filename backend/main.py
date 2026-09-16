@@ -7,6 +7,7 @@ import traceback
 
 from backend.preprocessing import load_scaler, preprocess_test_file, create_test_sequences
 from backend.model_service import load_model, predict_rul
+from backend.dynamodb_service import save_prediction
 
 app = FastAPI(
     title="RUL Prediction API",
@@ -46,17 +47,34 @@ async def predict(
         model = load_model(domain, X_test)
         predictions = predict_rul(X_test, model)
 
-        true_rul = pd.read_csv(pd.io.common.BytesIO(rul_content), header=None).values.flatten()
+        true_rul = pd.read_csv(
+            pd.io.common.BytesIO(rul_content),
+            header=None
+        ).values.flatten()
+
         true_rul = np.minimum(true_rul, 125)
 
         results = []
+
         for i, prediction in enumerate(predictions):
+
             rul = float(prediction)
+
+            alert = classify_alert(rul)
+
+            save_prediction(
+                domain=domain,
+                unit=i + 1,
+                true_rul=float(true_rul[i]),
+                predicted_rul=rul,
+                alert=alert
+            )
+
             results.append({
                 "unit": i + 1,
                 "true_rul": float(true_rul[i]),
                 "predicted_rul": rul,
-                "alert": classify_alert(rul)
+                "alert": alert
             })
 
         return {
@@ -64,6 +82,8 @@ async def predict(
             "number_of_units": len(results),
             "predictions": results
         }
+        
+        
     except Exception as e:
         traceback.print_exc()
         return JSONResponse(
