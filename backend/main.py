@@ -8,6 +8,7 @@ import traceback
 from backend.preprocessing import load_scaler, preprocess_test_file, create_test_sequences
 from backend.model_service import load_model, predict_rul
 from backend.dynamodb_service import save_prediction
+from backend.sns_service import send_critical_alert
 
 app = FastAPI(
     title="RUL Prediction API",
@@ -55,12 +56,16 @@ async def predict(
         true_rul = np.minimum(true_rul, 125)
 
         results = []
+        critical_predictions = []
 
         for i, prediction in enumerate(predictions):
 
             rul = float(prediction)
 
             alert = classify_alert(rul)
+            
+            if alert == "CRITICAL":
+                critical_predictions.append({"unit": i + 1, "predicted_rul": rul})
 
             save_prediction(
                 domain=domain,
@@ -76,6 +81,9 @@ async def predict(
                 "predicted_rul": rul,
                 "alert": alert
             })
+            
+        if critical_predictions:
+            send_critical_alert(domain, critical_predictions)
 
         return {
             "domain": domain,
